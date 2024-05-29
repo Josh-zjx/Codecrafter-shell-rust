@@ -1,3 +1,4 @@
+//use std::io::prelude::*;
 #[allow(unused_imports)]
 use std::io::{self, Write};
 
@@ -12,5 +13,8 @@ fn main() {
     // Wait for user input
     let stdin = io::stdin();
     let mut input = String::new();
-    stdin.read_line(&mut input).unwrap();
+    while stdin.read_line(&mut input).is_ok() {
+        println!("{}: command not found", input.strip_suffix("\n").unwrap());
+        break;
+    }
 }
