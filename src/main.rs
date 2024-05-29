@@ -4,12 +4,6 @@ use std::process::exit;
 use std::io::{self, Write};
 
 fn main() {
-    // You can use print statements as follows for debugging, they'll be visible when running tests.
-    //println!("Logs from your program will appear here!");
-
-    // Uncomment this block to pass the first stage
-
-    // Wait for user input
     let stdin = io::stdin();
     let mut input = String::new();
     print!("$ ");
@@ -21,7 +15,18 @@ fn main() {
                 Command::EXIT(val) => exit(val),
                 Command::ECHO(argument) => {
                     println!("{}", argument);
-                } //_default => {}
+                }
+                Command::TYPE(argument) => match type_of_command(argument) {
+                    CommandType::Builtin => {
+                        println!("{} is a shell builtin", argument);
+                    }
+                    CommandType::Program => {
+                        println!("{} is /bin/sh", argument);
+                    }
+                    CommandType::Nonexistent => {
+                        println!("{} not found", argument);
+                    }
+                },
             }
         } else {
             println!("{}: command not found", input_string);
@@ -36,7 +41,7 @@ fn main() {
 pub enum Command<'a> {
     EXIT(i32),
     ECHO(&'a str),
-    //ERROR(&'a str),
+    TYPE(&'a str), //ERROR(&'a str),
 }
 
 fn parse_input(input: &str) -> Option<Command> {
@@ -44,7 +49,22 @@ fn parse_input(input: &str) -> Option<Command> {
     match command {
         "exit" => Some(Command::EXIT(arguments.parse::<i32>().unwrap())),
         "echo" => Some(Command::ECHO(arguments)),
+        "type" => Some(Command::TYPE(arguments)),
         _default => None,
     }
-    //Command::ERROR(input)
+}
+
+pub enum CommandType {
+    Builtin,
+    Nonexistent,
+    Program,
+}
+
+fn type_of_command(command: &str) -> CommandType {
+    match command {
+        "echo" => CommandType::Builtin,
+        "exit" => CommandType::Builtin,
+        "type" => CommandType::Builtin,
+        _default => CommandType::Nonexistent,
+    }
 }
