@@ -15,13 +15,16 @@ fn main() {
     print!("$ ");
     io::stdout().flush().unwrap();
     while stdin.read_line(&mut input).is_ok() {
-        let command = parse_input(&input);
-        match command {
-            Command::ERROR(name) => {
-                println!("{}: command not found", name);
+        let input_string = input.strip_suffix('\n').unwrap();
+        if let Some(command) = parse_input(&input_string) {
+            match command {
+                Command::EXIT(val) => exit(val),
+                Command::ECHO(argument) => {
+                    println!("{}", argument);
+                } //_default => {}
             }
-            Command::EXIT(val) => exit(val),
-            _default => {}
+        } else {
+            println!("{}: command not found", input_string);
         }
         input.clear();
         print!("$ ");
@@ -33,15 +36,15 @@ fn main() {
 pub enum Command<'a> {
     EXIT(i32),
     ECHO(&'a str),
-    ERROR(&'a str),
+    //ERROR(&'a str),
 }
 
-fn parse_input(input: &str) -> Command {
-    let input = input.strip_suffix('\n').unwrap();
-    let input_group: Vec<_> = input.split(' ').collect();
-    match *input_group.first().unwrap() {
-        "exit" => Command::EXIT(input_group.get(1).unwrap().parse::<i32>().unwrap()),
-        _default => Command::ERROR(input),
+fn parse_input(input: &str) -> Option<Command> {
+    let (command, arguments) = input.split_once(' ')?;
+    match command {
+        "exit" => Some(Command::EXIT(arguments.parse::<i32>().unwrap())),
+        "echo" => Some(Command::ECHO(arguments)),
+        _default => None,
     }
     //Command::ERROR(input)
 }
