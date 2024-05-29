@@ -1,5 +1,6 @@
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::exit;
+use std::process::Command;
 use std::{env, fs};
 //use std::io::prelude::*;
 #[allow(unused_imports)]
@@ -14,11 +15,11 @@ fn main() {
         let input_string = input.strip_suffix('\n').unwrap();
         if let Some(command) = parse_input(input_string) {
             match command {
-                Command::EXIT(val) => exit(val),
-                Command::ECHO(argument) => {
+                ShellCommand::EXIT(val) => exit(val),
+                ShellCommand::ECHO(argument) => {
                     println!("{}", argument);
                 }
-                Command::TYPE(argument) => match type_of_command(argument) {
+                ShellCommand::TYPE(argument) => match type_of_command(argument) {
                     CommandType::Builtin => {
                         println!("{} is a shell builtin", argument);
                     }
@@ -29,6 +30,22 @@ fn main() {
                         println!("{} not found", argument);
                     }
                 },
+                ShellCommand::Program((command, arguments)) => {
+                    let command_type = type_of_command(command);
+                    match command_type {
+                        CommandType::Nonexistent => {
+                            println!("{}: command not found", input_string);
+                        }
+                        CommandType::Program(path) => {
+                            let output = Command::new(path)
+                                .args(arguments.split(' '))
+                                .output()
+                                .expect("fail to run program");
+                            print!("{}", String::from_utf8_lossy(&output.stdout))
+                        }
+                        CommandType::Builtin => {}
+                    };
+                }
             }
         } else {
             println!("{}: command not found", input_string);
@@ -40,19 +57,20 @@ fn main() {
 }
 
 #[derive(Debug, Clone)]
-pub enum Command<'a> {
+pub enum ShellCommand<'a> {
     EXIT(i32),
     ECHO(&'a str),
     TYPE(&'a str), //ERROR(&'a str),
+    Program((&'a str, &'a str)),
 }
 
-fn parse_input(input: &str) -> Option<Command> {
+fn parse_input(input: &str) -> Option<ShellCommand> {
     let (command, arguments) = input.split_once(' ')?;
     match command {
-        "exit" => Some(Command::EXIT(arguments.parse::<i32>().unwrap())),
-        "echo" => Some(Command::ECHO(arguments)),
-        "type" => Some(Command::TYPE(arguments)),
-        _default => None,
+        "exit" => Some(ShellCommand::EXIT(arguments.parse::<i32>().unwrap())),
+        "echo" => Some(ShellCommand::ECHO(arguments)),
+        "type" => Some(ShellCommand::TYPE(arguments)),
+        _default => Some(ShellCommand::Program((command, arguments))),
     }
 }
 
@@ -78,6 +96,10 @@ fn type_of_command(command: &str) -> CommandType {
                             return CommandType::Program(item.unwrap().path());
                         }
                     }
+                }
+                let full_path = Path::new(command);
+                if full_path.exists() {
+                    return CommandType::Program(full_path.to_path_buf());
                 }
                 CommandType::Nonexistent
             } else {
