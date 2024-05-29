@@ -1,3 +1,4 @@
+use std::fs::read_dir;
 use std::path::PathBuf;
 use std::process::exit;
 use std::{env, fs};
@@ -12,7 +13,7 @@ fn main() {
     io::stdout().flush().unwrap();
     while stdin.read_line(&mut input).is_ok() {
         let input_string = input.strip_suffix('\n').unwrap();
-        if let Some(command) = parse_input(input_string) {
+        if let Some(command) = parse_input(&input_string) {
             match command {
                 Command::EXIT(val) => exit(val),
                 Command::ECHO(argument) => {
@@ -22,8 +23,8 @@ fn main() {
                     CommandType::Builtin => {
                         println!("{} is a shell builtin", argument);
                     }
-                    CommandType::Program(path) => {
-                        println!("{} is {}", argument, path.to_str().unwrap());
+                    CommandType::Program => {
+                        println!("{} is /bin/sh", argument);
                     }
                     CommandType::Nonexistent => {
                         println!("{} not found", argument);
@@ -79,6 +80,7 @@ fn type_of_command(command: &str) -> CommandType {
                         }
                     }
                 }
+
                 CommandType::Nonexistent
             } else {
                 CommandType::Nonexistent
