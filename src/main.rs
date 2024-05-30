@@ -30,6 +30,9 @@ fn main() {
                         println!("{} not found", argument);
                     }
                 },
+                ShellCommand::PWD() => {
+                    println!("{}", std::env::current_dir().unwrap().to_str().unwrap())
+                }
                 ShellCommand::Program((command, arguments)) => {
                     let command_type = type_of_command(command);
                     match command_type {
@@ -61,15 +64,21 @@ pub enum ShellCommand<'a> {
     EXIT(i32),
     ECHO(&'a str),
     TYPE(&'a str), //ERROR(&'a str),
+    PWD(),
     Program((&'a str, &'a str)),
 }
 
 fn parse_input(input: &str) -> Option<ShellCommand> {
-    let (command, arguments) = input.split_once(' ')?;
+    let (command, arguments) = match input.find(' ') {
+        Some(_index) => input.split_once(' ')?,
+        None => (input, ""),
+    };
+
     match command {
         "exit" => Some(ShellCommand::EXIT(arguments.parse::<i32>().unwrap())),
         "echo" => Some(ShellCommand::ECHO(arguments)),
         "type" => Some(ShellCommand::TYPE(arguments)),
+        "pwd" => Some(ShellCommand::PWD()),
         _default => Some(ShellCommand::Program((command, arguments))),
     }
 }
@@ -86,11 +95,16 @@ fn type_of_command(command: &str) -> CommandType {
         "echo" => CommandType::Builtin,
         "exit" => CommandType::Builtin,
         "type" => CommandType::Builtin,
+        "pwd" => CommandType::Builtin,
         _default => {
             if let Ok(path) = env::var("PATH") {
                 let paths: Vec<&str> = path.split(':').collect();
                 for path in paths.iter() {
-                    let folder = fs::read_dir(path).unwrap();
+                    //println!("{}", path);
+                    let folder = match fs::read_dir(path) {
+                        Ok(fold) => fold,
+                        Err(_err) => continue,
+                    };
                     for item in folder.into_iter() {
                         if item.as_ref().unwrap().file_name() == command {
                             return CommandType::Program(item.unwrap().path());
