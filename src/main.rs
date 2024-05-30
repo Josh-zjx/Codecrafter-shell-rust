@@ -33,6 +33,11 @@ fn main() {
                 ShellCommand::PWD() => {
                     println!("{}", std::env::current_dir().unwrap().to_str().unwrap())
                 }
+                ShellCommand::CD(argument) => {
+                    if std::env::set_current_dir(Path::new(argument)).is_err() {
+                        println!("cd: {}: No such file or directory", argument);
+                    }
+                }
                 ShellCommand::Program((command, arguments)) => {
                     let command_type = type_of_command(command);
                     match command_type {
@@ -63,6 +68,7 @@ fn main() {
 pub enum ShellCommand<'a> {
     EXIT(i32),
     ECHO(&'a str),
+    CD(&'a str),
     TYPE(&'a str), //ERROR(&'a str),
     PWD(),
     Program((&'a str, &'a str)),
@@ -79,6 +85,7 @@ fn parse_input(input: &str) -> Option<ShellCommand> {
         "echo" => Some(ShellCommand::ECHO(arguments)),
         "type" => Some(ShellCommand::TYPE(arguments)),
         "pwd" => Some(ShellCommand::PWD()),
+        "cd" => Some(ShellCommand::CD(arguments)),
         _default => Some(ShellCommand::Program((command, arguments))),
     }
 }
@@ -96,6 +103,7 @@ fn type_of_command(command: &str) -> CommandType {
         "exit" => CommandType::Builtin,
         "type" => CommandType::Builtin,
         "pwd" => CommandType::Builtin,
+        "cd" => CommandType::Builtin,
         _default => {
             if let Ok(path) = env::var("PATH") {
                 let paths: Vec<&str> = path.split(':').collect();
