@@ -19,17 +19,7 @@ fn main() {
                 ShellCommand::ECHO(argument) => {
                     println!("{}", argument);
                 }
-                ShellCommand::TYPE(argument) => match type_of_command(argument) {
-                    CommandType::Builtin => {
-                        println!("{} is a shell builtin", argument);
-                    }
-                    CommandType::Program(path) => {
-                        println!("{} is {}", argument, path.to_str().unwrap());
-                    }
-                    CommandType::Nonexistent => {
-                        println!("{} not found", argument);
-                    }
-                },
+                ShellCommand::TYPE(argument) => handle_command_type(argument),
                 ShellCommand::PWD() => {
                     println!("{}", std::env::current_dir().unwrap().to_str().unwrap())
                 }
@@ -62,6 +52,20 @@ fn main() {
         print!("$ ");
         io::stdout().flush().unwrap();
     }
+}
+
+fn handle_command_type(argument: &str) {
+    match type_of_command(argument) {
+        CommandType::Builtin => {
+            println!("{} is a shell builtin", argument);
+        }
+        CommandType::Program(path) => {
+            println!("{} is {}", argument, path.to_str().unwrap());
+        }
+        CommandType::Nonexistent => {
+            println!("{} not found", argument);
+        }
+    };
 }
 
 #[derive(Debug, Clone)]
