@@ -23,11 +23,7 @@ fn main() {
                 ShellCommand::PWD() => {
                     println!("{}", std::env::current_dir().unwrap().to_str().unwrap())
                 }
-                ShellCommand::CD(argument) => {
-                    if std::env::set_current_dir(Path::new(argument)).is_err() {
-                        println!("cd: {}: No such file or directory", argument);
-                    }
-                }
+                ShellCommand::CD(argument) => handle_command_cd(argument),
                 ShellCommand::Program((command, arguments)) => {
                     let command_type = type_of_command(command);
                     match command_type {
@@ -65,6 +61,16 @@ fn handle_command_type(argument: &str) {
         CommandType::Nonexistent => {
             println!("{} not found", argument);
         }
+    };
+}
+
+fn handle_command_cd(argument: &str) {
+    if let Some(path) = argument.strip_prefix('~') {
+        if std::env::set_current_dir(Path::new(&(std::env::var("HOME").unwrap() + path))).is_err() {
+            println!("cd: {}: No such file or directory", argument);
+        }
+    } else if std::env::set_current_dir(Path::new(argument)).is_err() {
+        println!("cd: {}: No such file or directory", argument);
     };
 }
 
