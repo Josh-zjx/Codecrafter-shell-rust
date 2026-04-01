@@ -1,3 +1,17 @@
+// TODO(refactor): This single-file layout is becoming difficult to navigate. Consider
+// splitting into focused modules:
+//
+//   src/
+//   ├── main.rs          — REPL setup and top-level command dispatch only
+//   ├── completion.rs    — CompletionHelper, Completer impl, and PATH-executable list
+//   ├── parser.rs        — tokenizer (parse_input), ShellCommand enum, and redirect extraction
+//   ├── commands.rs      — CommandType enum, type_of_command(), handle_command_type(),
+//                          handle_command_cd()
+//   └── redirect.rs      — open_for_redirect() helper and Redirect struct
+//
+// Pro: each module has a clear responsibility; unit-tests can target individual modules.
+// Con: requires explicit pub re-exports and a small refactor of cross-module references.
+
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::process::exit;
@@ -12,6 +26,17 @@ use rustyline::history::FileHistory;
 use rustyline::{config, Context};
 use rustyline_derive::{Helper, Highlighter, Hinter, Validator};
 
+// TODO(refactor): Consider moving CompletionHelper and its Completer impl to
+// src/completion.rs.
+//
+// Pro: tab-completion is a self-contained concern that can evolve independently;
+//      the PATH-executable list built in main() could be encapsulated here too,
+//      eliminating the duplication with type_of_command() (see comment there).
+// Con: requires making the struct pub and providing a constructor, and re-exporting
+//      the type in main.rs.
+//
+// Additionally, the file-completion branch (lines below) unwraps DirEntry errors
+// inline. Extracting it gives a clean place to introduce proper error handling.
 #[derive(Helper, Hinter, Highlighter, Validator)]
 struct CompletionHelper {
     builtins: Vec<String>,
@@ -103,6 +128,15 @@ impl Completer for CompletionHelper {
 }
 
 fn main() {
+    // TODO(refactor): The executable-program discovery below duplicates the PATH-scanning
+    // logic that already exists in type_of_command().  Consider extracting a shared helper,
+    // e.g. `fn scan_path_executables() -> Vec<String>`, in src/commands.rs (or
+    // src/completion.rs if the list is only needed for tab-completion).
+    //
+    // Pro: single source of truth for PATH scanning; any fix (e.g. deduplication,
+    //      permission checks) automatically benefits both completion and type-checking.
+    // Con: the two callers serve slightly different purposes (completion hint list vs.
+    //      command-existence check), so the shared function signature needs thought.
     let mut executable_programs: Vec<String> = vec![
         "echo".to_string(),
         "exit".to_string(),
@@ -144,6 +178,28 @@ fn main() {
         builtins: executable_programs,
     }));
 
+    // TODO(refactor): Rustyline is in use for interactive line-editing, but several
+    // vanilla-REPL patterns remain:
+    //
+    // 1. `.expect("no input")` — rustyline::ReadlineError distinguishes Eof (Ctrl-D)
+    //    and Interrupted (Ctrl-C) from real I/O errors.  These should be matched and
+    //    handled gracefully (e.g. exit on Eof, continue on Interrupted) instead of
+    //    panicking.  Example:
+    //        match rl.readline("$ ") {
+    //            Ok(line)                          => { /* process */ }
+    //            Err(ReadlineError::Eof)            => break,
+    //            Err(ReadlineError::Interrupted)    => continue,
+    //            Err(err)                           => { eprintln!("error: {err}"); break }
+    //        }
+    //
+    // 2. rl.add_history_entry() is never called, so FileHistory never records
+    //    commands and the history is always empty.  Add:
+    //        let _ = rl.add_history_entry(input_string);
+    //    after a successful readline to enable up-arrow recall.
+    //
+    // 3. The io::stdout().flush() at the bottom of the loop is a leftover from the
+    //    vanilla `print!` / `flush` REPL pattern and is not needed when rustyline
+    //    manages the terminal.
     loop {
         let input_line = rl.readline("$ ").expect("no input");
         let input_string = input_line.strip_suffix('\n').unwrap_or(&input_line);
@@ -155,6 +211,17 @@ fn main() {
                 }
                 ShellCommand::Exit(val) => exit(val),
                 ShellCommand::Echo(argument, _rout, _rerr, _rout_append, _rerr_append) => {
+                    // TODO(refactor): The fs::OpenOptions block below is duplicated verbatim
+                    // in the ShellCommand::Program arm (and again for stderr there).
+                    // Consider extracting a helper, e.g.:
+                    //   fn open_for_redirect(path: &str, append: bool) -> io::Result<fs::File>
+                    // Pro: eliminates ~20 lines of duplication; one place to fix error handling.
+                    // Con: minor indirection; the helper would need to live in src/redirect.rs
+                    //      or be a free function visible to both call sites.
+                    //
+                    // NOTE: the stderr branch below only writes an empty file regardless of
+                    // any actual stderr content, which differs from the Program arm's behavior.
+                    // This inconsistency should be addressed when the helper is extracted.
                     if _rout != "" {
                         // NOTE: stdout redirection
                         let mut f = if _rout_append {
@@ -204,6 +271,10 @@ fn main() {
                                 .args(arguments)
                                 .output()
                                 .expect("fail to run program");
+                            // TODO(refactor): The four fs::OpenOptions blocks below (two for
+                            // stdout, two for stderr) are structurally identical to the blocks
+                            // in the ShellCommand::Echo arm above.  See the comment there for
+                            // the suggested open_for_redirect() helper.
                             if _rout != "" {
                                 // NOTE: stdout redirection
                                 let mut f = if _rout_append {
@@ -283,6 +354,16 @@ fn handle_command_cd(argument: &str) {
 }
 
 #[derive(Debug, Clone)]
+// TODO(refactor): The positional (String, String, bool, bool) redirect parameters in Echo
+// and Program are not self-documenting and require readers to count positions.  Consider:
+//
+//   struct Redirect { path: String, append: bool }
+//
+//   Echo(Vec<String>, Option<Redirect>, Option<Redirect>)
+//   Program(String, Vec<String>, Option<Redirect>, Option<Redirect>)
+//
+// Pro: intent is clear; extending to stdin redirect or multiple outputs only changes the struct.
+// Con: all match arms in main() and parse_input() need updating; a one-time mechanical change.
 pub enum ShellCommand {
     Empty(),
     Exit(i32),
@@ -293,6 +374,12 @@ pub enum ShellCommand {
     Program(String, Vec<String>, String, String, bool, bool), // (command, arguments, stdout, stderr, stdout_append, stderr_append)
 }
 
+// TODO(refactor): Consider moving parse_input() and ShellCommand into src/parser.rs.
+//
+// Pro: all tokenization and AST-building logic lives in one module; it is the natural
+//      place to add future features such as pipes (`|`), `&&`, `||`, or heredocs without
+//      cluttering main.rs.
+// Con: ShellCommand would need to be pub and re-imported in main.rs; minor boilerplate.
 fn parse_input(input: &str) -> Option<ShellCommand> {
     // NOTE: Only space and tab are considered as delimiters right now, other operators might be appended later
 
@@ -345,6 +432,23 @@ fn parse_input(input: &str) -> Option<ShellCommand> {
                 .unwrap_or(0),
         )),
         "echo" => {
+            // TODO(refactor): The redirect-extraction loop below (stdout then stderr) is
+            // duplicated verbatim in the `_default` arm.  Consider extracting a helper:
+            //
+            //   fn extract_redirect(
+            //       args: &mut Vec<String>,
+            //       stdout_ops: &[&str],
+            //       append_ops: &[&str],
+            //   ) -> (String, bool)
+            //
+            // that scans `args`, removes the operator token and its target, and returns
+            // (path, append_flag).  Call it twice per command (once for stdout, once for
+            // stderr) to replace ~40 lines of duplicated code.
+            //
+            // Pro: DRY — any bug fix or extension (e.g. `&>` combined redirect) only needs
+            //      to be made once.
+            // Con: the helper mutates the argument list in place, so its signature must
+            //      make that side-effect clear.
             let mut rout: String = "".to_string();
             let mut rout_append = false;
             let mut rout_i = 0;
@@ -411,6 +515,10 @@ fn parse_input(input: &str) -> Option<ShellCommand> {
         )),
         "" => Some(ShellCommand::Empty()),
         _default => {
+            // TODO(refactor): This redirect-extraction block is identical to the one in the
+            // "echo" arm above.  See the comment there for the suggested extract_redirect()
+            // helper.  Removing this duplication would also make it straightforward to add
+            // support for new redirect operators (e.g. `&>`, `<`) in a single location.
             let mut rout: String = "".to_string();
             let mut rout_append = false;
             let mut rout_i = 0;
@@ -479,6 +587,18 @@ pub enum CommandType {
     Program(PathBuf),
 }
 
+// TODO(refactor): Consider moving CommandType, type_of_command(), handle_command_type(),
+// and handle_command_cd() to src/commands.rs.
+//
+// Pro: all command-related lookup and dispatch logic is co-located; easier to add new
+//      builtins without touching parser or REPL code.
+// Con: handle_command_cd() uses std::env::set_current_dir() which affects global process
+//      state — document that side-effect clearly in the module.
+//
+// Additionally, type_of_command() walks every directory entry in every PATH directory on
+// each invocation.  For shells with large PATH values this is expensive.  A simple
+// HashMap<String, CommandType> cache (populated once at startup, invalidated on PATH
+// change) would reduce repeated O(n) filesystem scans to O(1) lookups.
 fn type_of_command(command: &str) -> CommandType {
     match command {
         "echo" => CommandType::Builtin,
